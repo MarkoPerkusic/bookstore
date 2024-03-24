@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, EmailStr, validator, SecretStr
 from sqlalchemy import Table, Column, Integer, ForeignKey, String
 from sqlalchemy.orm import relationship
@@ -72,3 +73,6 @@ class LibrarianRegistration(BaseRegistration):
 class BookCreate(BaseModel):
     title: str
     author: str
+
+class TokenData(BaseModel):
+    sub: Optional[str] = None
