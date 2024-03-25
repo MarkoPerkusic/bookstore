@@ -53,7 +53,7 @@ class BaseRegistration(BaseModel):
     password: SecretStr
 
     @validator("password")
-    def validate_password_length(self, pswrd):
+    def validate_password_length(cls, pswrd):
         if len(pswrd.get_secret_value()) < 8:
             raise ValueError("Password must be at least 8 characters long")
         return pswrd

@@ -1,23 +1,27 @@
+import configparser
 import datetime
 from typing import List, Optional
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
-from models import AdminRegistration, Book, CustomerRegistration, LibrarianRegistration, TokenData, User
+from .models import Base, AdminRegistration, Book, CustomerRegistration, LibrarianRegistration, TokenData, User
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from models import Base
+#from models import Base
 import os
 from dotenv import load_dotenv
 import secrets
 from jose import JWTError, jwt
 
 
-# Load environment variables from .env file
-load_dotenv()
+# Load values from alembic.ini
+config = configparser.ConfigParser()
+config.read('alembic.ini')
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DATABASE_URL)
+# Get the value of sqlalchemy.url
+database_url = config.get('alembic', 'sqlalchemy.url')
+
+engine = create_engine(database_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base.metadata.create_all(bind=engine)
@@ -174,24 +178,45 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Fetch the user directly from the database using the email obtained from the token
+    # Fetch the user from the database using the email obtained from the token
     user = SessionLocal().query(User).filter(User.email == token_data.email).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
 
-# Endpoint to get the borrowed books of the current user
+# Get the borrowed books of the current user
 @app.get("/profile", response_model=List[Book])
 async def get_client_profile(
     current_user: User = Depends(get_current_user), db: Session = Depends(SessionLocal)
     ):
     if not current_user:
-        raise HTTPException(status_code=401, detail="User not authenticated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="User not authenticated"
+            )
 
     # Query the database for the borrowed books of the user
     borrowed_books = db.query(Book).filter(Book.borrower_id == current_user.id).all()
     
     return borrowed_books
+
+# Admin profile endpoint
+@app.get("/admin/profile", response_model=User)
+async def get_admin_profile(current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
+                            detail="User is not an admin")
+
+    return current_user
+
+# Librarian profile endpoint
+@app.get("/librarian/profile", response_model=User)
+async def get_librarian_profile(current_user: User = Depends(get_current_user)):
+    if current_user.role != "librarian":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
+                            detail="User is not a librarian")
+
+    return current_user
 
 
 @app.get("/")
