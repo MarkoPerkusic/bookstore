@@ -9,8 +9,6 @@ from .models import *
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 #from models import Base
-import os
-from dotenv import load_dotenv
 import secrets
 from jose import JWTError, jwt
 
@@ -189,8 +187,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 @app.get("/profile", response_model=List[ShowBooks])
 async def get_client_profile(
     current_user: User = Depends(get_current_user), 
-    db: Session = Depends(SessionLocal)
-    ):
+    db: Session = Depends(SessionLocal)):
     if not current_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
@@ -212,13 +209,16 @@ async def get_admin_profile(current_user: UserModel = Depends(get_current_user))
     return current_user
 
 # Librarian profile endpoint
-@app.get("/librarian/profile", response_model=UserModel)
-async def get_librarian_profile(current_user: UserModel = Depends(get_current_user)):
+@app.get("/librarian/clients", response_model=List[User])
+async def get_librarian_profile(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(SessionLocal)):
     if current_user.role != "librarian":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
                             detail="User is not a librarian")
 
-    return current_user
+    clients = db.query(User).filter(User.role == "customer").all()
+    return clients
 
 
 @app.get("/")
@@ -230,8 +230,7 @@ async def change_user_role(
     user_id: int,
     new_role: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(SessionLocal),
-):
+    db: Session = Depends(SessionLocal)):
     # Check if the current user is an admin
     if current_user.role != "admin":
         raise HTTPException(
@@ -253,6 +252,55 @@ async def change_user_role(
     db.refresh(user)
     return user
 
+@app.get("/librarian/clients/{client_id}/books", response_model=List[Book])
+async def get_client_borrowed_books(client_id: int, current_user: User = Depends(get_current_user),
+                                    db: Session = Depends(SessionLocal)):
+
+    if current_user.role != "librarian":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden access")
+
+    client = db.query(User).filter(User.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    borrowed_books = db.query(Book).filter(Book.borrower_id == client_id).all()
+    return borrowed_books
+
+@app.post("/clients/{client_id}/books/{book_id}/add")
+async def add_book_for_client(client_id: str, book_id: int, db: Session = Depends(SessionLocal)):
+    
+    client = db.query(User).filter(User.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    if book.borrower_id is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Book is already borrowed")
+
+    # Assign the book to the client
+    book.borrower_id = client.id
+    db.commit()
+    return {"message": "Book borrowed successfully"}
+
+@app.delete("/clients/{client_id}/books/{book_id}/delete")
+async def delete_book_for_client(client_id: str, book_id: int, db: Session = Depends(SessionLocal)):
+    
+    client = db.query(User).filter(User.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    
+    # Retrieve the book from the database
+    book = db.query(Book).filter(Book.id == book_id, Book.borrower_id == client.id).first()
+    if not book:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found for this client")
+
+    # Remove the book from the client's borrowed books
+    book.borrower_id = None
+    db.commit()
+    return {"message": "Book returned successfully"}
 
 if __name__ == "__main__":
     import uvicorn
