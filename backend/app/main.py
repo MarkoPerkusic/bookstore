@@ -4,7 +4,8 @@ from typing import List, Optional
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
-from .models import Base, AdminRegistration, Book, CustomerRegistration, LibrarianRegistration, TokenData, User
+#from .models import Base, AdminRegistration, Book, CustomerRegistration, LibrarianRegistration, ShowBooks, TokenData, UserCreation, User
+from .models import *
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 #from models import Base
@@ -82,7 +83,7 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends()):
 
 
 # Register endpoint
-@app.post("/register", response_model=User)
+@app.post("/register", response_model=UserModel)
 async def register_user(user_data: CustomerRegistration):
     db = SessionLocal()
     # Check if the email is already registered
@@ -108,7 +109,7 @@ async def register_user(user_data: CustomerRegistration):
     return new_user
 
 
-@app.post("/register/admin", response_model=User)
+@app.post("/register/admin", response_model=UserModel)
 async def register_admin(admin_data: AdminRegistration):
     db = SessionLocal()
     # Check if the email is already registered
@@ -134,7 +135,7 @@ async def register_admin(admin_data: AdminRegistration):
     return new_user
 
 
-@app.post("/register/librarian", response_model=User)
+@app.post("/register/librarian", response_model=UserModel)
 async def register_librarian(librarian_data: LibrarianRegistration):
     db = SessionLocal()
     # Check if the email is already registered
@@ -185,9 +186,10 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     return user
 
 # Get the borrowed books of the current user
-@app.get("/profile", response_model=List[Book])
+@app.get("/profile", response_model=List[ShowBooks])
 async def get_client_profile(
-    current_user: User = Depends(get_current_user), db: Session = Depends(SessionLocal)
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(SessionLocal)
     ):
     if not current_user:
         raise HTTPException(
@@ -201,8 +203,8 @@ async def get_client_profile(
     return borrowed_books
 
 # Admin profile endpoint
-@app.get("/admin/profile", response_model=User)
-async def get_admin_profile(current_user: User = Depends(get_current_user)):
+@app.get("/admin/profile", response_model=UserModel)
+async def get_admin_profile(current_user: UserModel = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
                             detail="User is not an admin")
@@ -210,8 +212,8 @@ async def get_admin_profile(current_user: User = Depends(get_current_user)):
     return current_user
 
 # Librarian profile endpoint
-@app.get("/librarian/profile", response_model=User)
-async def get_librarian_profile(current_user: User = Depends(get_current_user)):
+@app.get("/librarian/profile", response_model=UserModel)
+async def get_librarian_profile(current_user: UserModel = Depends(get_current_user)):
     if current_user.role != "librarian":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
                             detail="User is not a librarian")
@@ -222,6 +224,34 @@ async def get_librarian_profile(current_user: User = Depends(get_current_user)):
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to the bookstore API!"}
+
+@app.put("/users/{user_id}/role", response_model=User)
+async def change_user_role(
+    user_id: int,
+    new_role: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(SessionLocal),
+):
+    # Check if the current user is an admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can change user roles",
+        )
+    
+    # Check if the user to be modified exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    # Update the user's role
+    user.role = new_role
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 if __name__ == "__main__":
