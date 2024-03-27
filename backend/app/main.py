@@ -103,8 +103,7 @@ async def register_user(user_data: CustomerRegistration):
     db.refresh(new_user)
     db.close()
 
-    # TODO: replace later with: return {"redirect_url": "/login"}
-    return new_user
+    return {"redirect_url": "/login"}
 
 
 @app.post("/register/admin", response_model=UserModel)
@@ -209,7 +208,7 @@ async def get_admin_profile(current_user: UserModel = Depends(get_current_user))
     return current_user
 
 # Librarian profile endpoint
-@app.get("/librarian/clients", response_model=List[User])
+@app.get("/librarian/clients", response_model=List[UserModel])
 async def get_librarian_profile(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(SessionLocal)):
@@ -225,7 +224,7 @@ async def get_librarian_profile(
 async def read_root():
     return {"message": "Welcome to the bookstore API!"}
 
-@app.put("/users/{user_id}/role", response_model=User)
+@app.put("/users/{user_id}/role", response_model=UserModel)
 async def change_user_role(
     user_id: int,
     new_role: str,
@@ -252,7 +251,7 @@ async def change_user_role(
     db.refresh(user)
     return user
 
-@app.get("/librarian/clients/{client_id}/books", response_model=List[Book])
+@app.get("/librarian/clients/{client_id}/books", response_model=List[ShowBooks])
 async def get_client_borrowed_books(client_id: int, current_user: User = Depends(get_current_user),
                                     db: Session = Depends(SessionLocal)):
 

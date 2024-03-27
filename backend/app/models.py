@@ -74,5 +74,17 @@ class BookCreate(BaseModel):
     title: str
     author: str
 
+class ShowBooks(BaseModel):
+    id: int
+    title: str
+    author: str
+
 class TokenData(BaseModel):
     sub: Optional[str] = None
+
+class UserModel(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+    role: str

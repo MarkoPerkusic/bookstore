@@ -3,3 +3,9 @@
 
 # Ignore the virtual environment directory
 venv/
+
+# Ignore Python bytecode files
+__pycache__/
+
+# Ignore Alembic migration script templates
+*.mako
