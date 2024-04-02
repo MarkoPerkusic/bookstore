@@ -1,14 +1,13 @@
 import configparser
-import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
-#from .models import Base, AdminRegistration, Book, CustomerRegistration, LibrarianRegistration, ShowBooks, TokenData, UserCreation, User
 from .models import *
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-#from models import Base
 import secrets
 from jose import JWTError, jwt
 
@@ -28,7 +27,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"])
 
 # JWT
 SECRET_KEY = secrets.token_urlsafe(32)
@@ -51,12 +50,12 @@ def authenticate_user(db, email: str, password: str):
 
 
 # Create access token
-def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] = None):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now() + expires_delta
     else:
-        expire = datetime.utcnow() + datetime.timedelta(minutes=15)
+        expire = datetime.now() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -65,17 +64,18 @@ def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] 
 # Login endpoint
 @app.post("/login")
 async def login_user(form_data: OAuth2PasswordRequestForm = Depends()):
+
     db = SessionLocal()
-    user = authenticate_user(db, form_data.email, form_data.password)
+    user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token = create_access_token(
         data={"sub": user.email}, 
-        expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -83,6 +83,7 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends()):
 # Register endpoint
 @app.post("/register", response_model=UserModel)
 async def register_user(user_data: CustomerRegistration):
+
     db = SessionLocal()
     # Check if the email is already registered
     if db.query(User).filter(User.email == user_data.email).first():
@@ -94,8 +95,8 @@ async def register_user(user_data: CustomerRegistration):
         first_name=user_data.first_name,
         last_name=user_data.last_name,
         email=user_data.email,
-        password=pwd_context.hash(user_data.password),
-        role=user_data.role
+        password=pwd_context.hash(user_data.password.get_secret_value()),
+        role="customer"
     )
     
     db.add(new_user)
@@ -103,11 +104,13 @@ async def register_user(user_data: CustomerRegistration):
     db.refresh(new_user)
     db.close()
 
-    return {"redirect_url": "/login"}
+    return JSONResponse(content={"message": "User registration successful"}, 
+                        status_code=status.HTTP_200_OK)
 
 
 @app.post("/register/admin", response_model=UserModel)
 async def register_admin(admin_data: AdminRegistration):
+
     db = SessionLocal()
     # Check if the email is already registered
     if db.query(User).filter(User.email == admin_data.email).first():
@@ -120,7 +123,7 @@ async def register_admin(admin_data: AdminRegistration):
         first_name=admin_data.first_name,
         last_name=admin_data.last_name,
         email=admin_data.email,
-        password=pwd_context.hash(admin_data.password),
+        password=pwd_context.hash(admin_data.password.get_secret_value()),
         role="admin"
     )
     
@@ -134,6 +137,7 @@ async def register_admin(admin_data: AdminRegistration):
 
 @app.post("/register/librarian", response_model=UserModel)
 async def register_librarian(librarian_data: LibrarianRegistration):
+
     db = SessionLocal()
     # Check if the email is already registered
     if db.query(User).filter(User.email == librarian_data.email).first():
@@ -145,7 +149,7 @@ async def register_librarian(librarian_data: LibrarianRegistration):
         first_name=librarian_data.first_name,
         last_name=librarian_data.last_name,
         email=librarian_data.email,
-        password=pwd_context.hash(librarian_data.password),
+        password=pwd_context.hash(librarian_data.password.get_secret_value()),
         role="librarian"
     )
     
@@ -159,25 +163,28 @@ async def register_librarian(librarian_data: LibrarianRegistration):
 
 # Dependency to get the current user
 def get_current_user(token: str = Depends(oauth2_scheme)):
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
+
         if email is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Could not validate credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        token_data = TokenData(email=email)
-    except JWTError:
+    except JWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail=f"Could not validate credentials due to: {e}",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    db = SessionLocal()
 
     # Fetch the user from the database using the email obtained from the token
-    user = SessionLocal().query(User).filter(User.email == token_data.email).first()
+    user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
@@ -185,13 +192,16 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 # Get the borrowed books of the current user
 @app.get("/profile", response_model=List[ShowBooks])
 async def get_client_profile(
-    current_user: User = Depends(get_current_user), 
-    db: Session = Depends(SessionLocal)):
+    current_user: User = Depends(get_current_user)
+   ):
+    
     if not current_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="User not authenticated"
-            )
+        )
+    
+    db = SessionLocal()
 
     # Query the database for the borrowed books of the user
     borrowed_books = db.query(Book).filter(Book.borrower_id == current_user.id).all()
@@ -200,7 +210,8 @@ async def get_client_profile(
 
 # Admin profile endpoint
 @app.get("/admin/profile", response_model=UserModel)
-async def get_admin_profile(current_user: UserModel = Depends(get_current_user)):
+async def get_admin_profile(current_user: User = Depends(get_current_user)):
+
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
                             detail="User is not an admin")
@@ -209,12 +220,13 @@ async def get_admin_profile(current_user: UserModel = Depends(get_current_user))
 
 # Librarian profile endpoint
 @app.get("/librarian/clients", response_model=List[UserModel])
-async def get_librarian_profile(
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(SessionLocal)):
+async def get_librarian_profile(current_user: User = Depends(get_current_user)):
+
     if current_user.role != "librarian":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
                             detail="User is not a librarian")
+    
+    db = SessionLocal()
 
     clients = db.query(User).filter(User.role == "customer").all()
     return clients
@@ -228,8 +240,10 @@ async def read_root():
 async def change_user_role(
     user_id: int,
     new_role: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(SessionLocal)):
+    current_user: User = Depends(get_current_user)):
+
+    db = SessionLocal()
+
     # Check if the current user is an admin
     if current_user.role != "admin":
         raise HTTPException(
@@ -252,8 +266,10 @@ async def change_user_role(
     return user
 
 @app.get("/librarian/clients/{client_id}/books", response_model=List[ShowBooks])
-async def get_client_borrowed_books(client_id: int, current_user: User = Depends(get_current_user),
-                                    db: Session = Depends(SessionLocal)):
+async def get_client_borrowed_books(client_id: int, 
+                                    current_user: User = Depends(get_current_user)):
+
+    db = SessionLocal()
 
     if current_user.role != "librarian":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden access")
@@ -265,8 +281,10 @@ async def get_client_borrowed_books(client_id: int, current_user: User = Depends
     borrowed_books = db.query(Book).filter(Book.borrower_id == client_id).all()
     return borrowed_books
 
-@app.post("/clients/{client_id}/books/{book_id}/add")
-async def add_book_for_client(client_id: str, book_id: int, db: Session = Depends(SessionLocal)):
+@app.post("/librarian/clients/{client_id}/books/{book_id}/add")
+async def add_book_for_client(client_id: str, book_id: int):
+
+    db = SessionLocal()
     
     client = db.query(User).filter(User.id == client_id).first()
     if not client:
@@ -277,15 +295,18 @@ async def add_book_for_client(client_id: str, book_id: int, db: Session = Depend
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
     if book.borrower_id is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Book is already borrowed")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, 
+                            detail="Book is already borrowed")
 
     # Assign the book to the client
     book.borrower_id = client.id
     db.commit()
     return {"message": "Book borrowed successfully"}
 
-@app.delete("/clients/{client_id}/books/{book_id}/delete")
-async def delete_book_for_client(client_id: str, book_id: int, db: Session = Depends(SessionLocal)):
+@app.delete("/librarian/clients/{client_id}/books/{book_id}/delete")
+async def delete_book_for_client(client_id: str, book_id: int):
+
+    db = SessionLocal()
     
     client = db.query(User).filter(User.id == client_id).first()
     if not client:
@@ -294,7 +315,8 @@ async def delete_book_for_client(client_id: str, book_id: int, db: Session = Dep
     # Retrieve the book from the database
     book = db.query(Book).filter(Book.id == book_id, Book.borrower_id == client.id).first()
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found for this client")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, 
+                            detail="Book not found for this client")
 
     # Remove the book from the client's borrowed books
     book.borrower_id = None
