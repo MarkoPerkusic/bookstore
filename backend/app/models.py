@@ -9,14 +9,6 @@ from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
 
-# Association table for the many-to-many relationship
-user_books_association = Table(
-    "user_books",
-    Base.metadata,
-    Column("user_id", Integer, ForeignKey("users.id")),
-    Column("book_id", Integer, ForeignKey("books.id"))
-)
-
 # SQLAlchemy User model
 class User(Base):
     __tablename__ = "users"
@@ -29,7 +21,7 @@ class User(Base):
     role = Column(String)
 
     # Define relationship with Book model
-    books = relationship("Book", secondary=user_books_association, back_populates="users")
+    books = relationship("Book", back_populates="users")
 
 # SQLAlchemy Book model
 class Book(Base):
@@ -41,7 +33,7 @@ class Book(Base):
     borrower_id = Column(Integer, ForeignKey("users.id"))
 
     # Define relationship with User model
-    users = relationship("User", secondary=user_books_association, back_populates="books")
+    users = relationship("User", back_populates="books")
 
 
 ##################### Pydantic models for input validation #####################
