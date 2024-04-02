@@ -239,10 +239,11 @@ async def read_root():
 @app.put("/users/{user_id}/role", response_model=UserModel)
 async def change_user_role(
     user_id: int,
-    new_role: str,
+    request_body: ChangeUserRole,
     current_user: User = Depends(get_current_user)):
 
     db = SessionLocal()
+    new_role = request_body.new_role
 
     # Check if the current user is an admin
     if current_user.role != "admin":
