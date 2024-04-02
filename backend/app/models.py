@@ -60,15 +60,15 @@ class BaseRegistration(BaseModel):
 
 
 class CustomerRegistration(BaseRegistration):
-    role: str = "customer"
+    role: Optional[str] = "customer"
 
 
 class AdminRegistration(BaseRegistration):
-    role: str = "admin"
+    role: Optional[str] = "admin"
 
 
 class LibrarianRegistration(BaseRegistration):
-    role: str = "librarian"
+    role: Optional[str] = "librarian"
 
 class BookCreate(BaseModel):
     title: str
