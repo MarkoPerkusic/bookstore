@@ -20,7 +20,7 @@ config.read('alembic.ini')
 # Get the value of sqlalchemy.url
 database_url = config.get('alembic', 'sqlalchemy.url')
 
-engine = create_engine(database_url)
+engine = create_engine(database_url, pool_size=10, max_overflow=20)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base.metadata.create_all(bind=engine)
@@ -234,13 +234,19 @@ async def get_admin_profile(current_user: User = Depends(get_current_user)):
 @app.get("/librarian/clients", response_model=List[UserModel])
 async def get_librarian_profile(current_user: User = Depends(get_current_user)):
 
-    if current_user.role != "librarian":
+    print(f"{current_user.role}")
+
+    if current_user.role not in ["librarian", "admin"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, 
                             detail="User is not a librarian")
     
     db = SessionLocal()
 
     clients = db.query(User).filter(User.role == "customer").all()
+    
+    clients_data = [{"id": client.id, "first_name": client.first_name, "last_name": client.last_name, "email": client.email, "role": client.role} for client in clients]
+    print(f"{clients_data}")
+
     return clients
 
 
@@ -284,7 +290,7 @@ async def get_client_borrowed_books(client_id: int,
 
     db = SessionLocal()
 
-    if current_user.role != "librarian":
+    if current_user.role not in ["librarian", "admin"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden access")
 
     client = db.query(User).filter(User.id == client_id).first()
@@ -294,8 +300,8 @@ async def get_client_borrowed_books(client_id: int,
     borrowed_books = db.query(Book).filter(Book.borrower_id == client_id).all()
     return borrowed_books
 
-@app.post("/librarian/clients/{client_id}/books/{book_id}/add")
-async def add_book_for_client(client_id: str, book_id: int):
+@app.post("/librarian/clients/{client_id}/books/add")
+async def add_book_for_client(client_id: int, book_name: str):
 
     db = SessionLocal()
     
@@ -303,12 +309,12 @@ async def add_book_for_client(client_id: str, book_id: int):
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
-    book = db.query(Book).filter(Book.id == book_id).first()
+    book = db.query(Book).filter(Book.title == book_name).first()
     if not book:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
     if book.borrower_id is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, 
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, 
                             detail="Book is already borrowed")
 
     # Assign the book to the client
@@ -316,8 +322,8 @@ async def add_book_for_client(client_id: str, book_id: int):
     db.commit()
     return {"message": "Book borrowed successfully"}
 
-@app.delete("/librarian/clients/{client_id}/books/{book_id}/delete")
-async def delete_book_for_client(client_id: str, book_id: int):
+@app.delete("/librarian/clients/{client_id}/books/{book_name}/delete")
+async def delete_book_for_client(client_id: int, book_name: str):
 
     db = SessionLocal()
     
@@ -325,8 +331,8 @@ async def delete_book_for_client(client_id: str, book_id: int):
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
     
-    # Retrieve the book from the database
-    book = db.query(Book).filter(Book.id == book_id, Book.borrower_id == client.id).first()
+    # Retrieve the book from the database by name
+    book = db.query(Book).filter(Book.borrower_id == client.id, Book.title == book_name).first()
     if not book:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, 
                             detail="Book not found for this client")
