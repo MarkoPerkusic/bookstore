@@ -26,7 +26,10 @@ The frontend part is implemented in ReactJS and is located in separete repo - ht
 
     pip install -r requirements.txt
 
-Make sure to have PostgreSQL installed and running. You'll need to manually create books in the database, as the application currently does not have functionality to create books automatically.
+> **_NOTE:_**
+Make sure to have PostgreSQL installed and running. You'll need to manually create books in the database, as the application 
+currently does not have functionality to create books automatically. Add the value of your database url to the DATABASE_URL key in
+your .env file.
 
 ## Usage
 
